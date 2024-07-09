@@ -95,9 +95,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
 CoverCommand = Literal["open_cover"] | Literal["close_cover"] | Literal["stop_cover"]
 
 
-class EltakoCoverTimeBased(
-    CoverEntity, RestoreEntity
-):
+class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
 
     def __init__(
         self,
@@ -105,21 +103,20 @@ class EltakoCoverTimeBased(
         name: str,
         switch_user_data: SwitchUserData,
         trigger_listener_data: TriggerListenerData,
-        travel_time_down: timedelta = timedelta(
-            seconds=DEFAULT_TRAVEL_TIME),
-        travel_time_up: timedelta = timedelta(
-            seconds=DEFAULT_TRAVEL_TIME),
+        travel_time_down: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
+        travel_time_up: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
         tilt_time_down: Optional[timedelta] = None,
         tilt_time_up: Optional[timedelta] = None,
     ) -> None:
         """Initialize the cover."""
         from xknx.devices import TravelCalculator
-        self._tilting_time_down = float(
-            tilt_time_down.total_seconds()
-        ) if tilt_time_down else None
-        self._tilting_time_up = float(
-            tilt_time_up.total_seconds()
-        ) if tilt_time_up else None
+
+        self._tilting_time_down = (
+            float(tilt_time_down.total_seconds()) if tilt_time_down else None
+        )
+        self._tilting_time_up = (
+            float(tilt_time_up.total_seconds()) if tilt_time_up else None
+        )
         self._travel_time_down = float(travel_time_down.total_seconds())
         self._travel_time_up = float(travel_time_up.total_seconds())
 
@@ -146,9 +143,9 @@ class EltakoCoverTimeBased(
         if self.state == STATE_OPENING:
             self._handle_stop()
         elif self.state in (STATE_CLOSING, STATE_CLOSED) or (
-            self.state == STATE_OPEN and
-            self.current_cover_position is not None and
-            self.current_cover_position < 100
+            self.state == STATE_OPEN
+            and self.current_cover_position is not None
+            and self.current_cover_position < 100
         ):
             self.travel_calc.start_travel_up()
             self.start_auto_updater()
@@ -169,20 +166,24 @@ class EltakoCoverTimeBased(
         if (
             old_state is not None
             and self.travel_calc is not None
-            and (old_position := old_state.attributes.get(ATTR_CURRENT_POSITION)) is not None
+            and (old_position := old_state.attributes.get(ATTR_CURRENT_POSITION))
+            is not None
         ):
             self.travel_calc.set_position(100 - int(old_position))
 
             if (
                 self._has_tilt_support()
-                and (old_tilt_position := old_state.attributes.get(ATTR_CURRENT_TILT_POSITION)) is not None
+                and (
+                    old_tilt_position := old_state.attributes.get(
+                        ATTR_CURRENT_TILT_POSITION
+                    )
+                )
+                is not None
             ):
                 self.tilt_calc.set_position(100 - int(old_tilt_position))
 
         await self._trigger_listener.async_added_to_hass(
-            self.hass,
-            self.on_trigger_on,
-            self.on_trigger_off
+            self.hass, self.on_trigger_on, self.on_trigger_off
         )
 
     def _handle_stop(self) -> None:
@@ -222,7 +223,9 @@ class EltakoCoverTimeBased(
     @property
     def current_cover_tilt_position(self) -> Optional[int]:
         """Return the current tilt of the cover."""
-        if self._has_tilt_support() and (current_position := self.tilt_calc.current_position()):
+        if self._has_tilt_support() and (
+            current_position := self.tilt_calc.current_position()
+        ):
             return 100 - current_position
         else:
             return None
@@ -300,7 +303,9 @@ class EltakoCoverTimeBased(
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Turn the device close."""
         _LOGGER.debug("async_close_cover")
-        if (current_position := self.travel_calc.current_position()) is not None and current_position < 100:
+        if (
+            current_position := self.travel_calc.current_position()
+        ) is not None and current_position < 100:
             self.travel_calc.start_travel_down()
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_CLOSE_COVER)
@@ -309,7 +314,9 @@ class EltakoCoverTimeBased(
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Turn the device open."""
         _LOGGER.debug("async_open_cover")
-        if (current_position := self.travel_calc.current_position()) is not None and current_position > 0:
+        if (
+            current_position := self.travel_calc.current_position()
+        ) is not None and current_position > 0:
             self.travel_calc.start_travel_up()
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_OPEN_COVER)
@@ -318,7 +325,9 @@ class EltakoCoverTimeBased(
     async def async_close_cover_tilt(self, **kwargs: Any) -> None:
         """Turn the device close."""
         _LOGGER.debug("async_close_cover_tilt")
-        if (current_tilt := self.tilt_calc.current_position()) is not None and current_tilt < 100:
+        if (
+            current_tilt := self.tilt_calc.current_position()
+        ) is not None and current_tilt < 100:
             self.tilt_calc.start_travel_down()
             self.start_auto_updater()
             await self._async_handle_command(SERVICE_CLOSE_COVER)
@@ -326,7 +335,9 @@ class EltakoCoverTimeBased(
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         """Turn the device open."""
         _LOGGER.debug("async_open_cover_tilt")
-        if (current_tilt := self.tilt_calc.current_position()) is not None and current_tilt > 0:
+        if (
+            current_tilt := self.tilt_calc.current_position()
+        ) is not None and current_tilt > 0:
             self.tilt_calc.start_travel_up()
             self.start_auto_updater()
             await self._async_handle_command(SERVICE_OPEN_COVER)
