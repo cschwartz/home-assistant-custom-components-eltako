@@ -1,6 +1,0 @@
-  
-send_command:
-  description: Send device command through Cover.
-  fields:
-    command: {description: The command to be sent., example: 'open_cover'}
-    device_id: {description: device ID.}

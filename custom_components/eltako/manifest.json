@@ -1,0 +1,10 @@
+{
+  "domain": "eltako",
+  "name": "Eltako Smarthome Integration",
+  "version": "1.0.0",
+  "documentation": "https://github.com/cschwartz/home-assistant-custom-components-eltako",
+  "requirements": [
+    "xknx==0.9.4"
+  ],
+  "codeowners": ["@cschwartz"]
+}
