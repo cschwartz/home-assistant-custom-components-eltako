@@ -1,15 +1,18 @@
-from collections.abc import Coroutine
-from typing import Any, Optional
+from collections.abc import Callable, Coroutine
+from typing import Any, Optional, TypeVar
 import voluptuous as vol
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.const import CONF_DEVICES, CONF_NAME
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import NoEntitySpecifiedError
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .config import devices_from_config
+from .const import CONF_VIRTUAL_SWITCH, CONF_SWITCH_LISTENERS
 from .switch_user import (
     SWITCH_SCHEMA,
     SwitchUserData,
@@ -22,7 +25,6 @@ from .trigger_listener import (
     TriggerListener,
     from_trigger_config,
 )
-from .const import CONF_VIRTUAL_SWITCH, CONF_SWITCH_LISTENERS
 
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
@@ -59,7 +61,11 @@ class EltakoSwitch(SwitchEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        await self._trigger_listener.async_added_to_hass(self.hass)
+        await self._trigger_listener.async_added_to_hass(
+            self.hass,
+            self.on_trigger_on,
+            self.on_trigger_off
+        )
 
     def on_trigger_on(self) -> None:
         self._set_state(True)
@@ -95,21 +101,10 @@ def from_config(
     )
 
 
-def devices_from_config(
-    hass: HomeAssistant, domain_config: ConfigType
-) -> list[EltakoSwitch]:
-    entity_registry = er.async_get(hass)
-
-    return [
-        from_config(entity_registry, device_id, config)
-        for device_id, config in domain_config[CONF_DEVICES].items()
-    ]
-
-
 async def async_setup_platform(
     hass: HomeAssistant,
     config: ConfigType,
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
-    async_add_entities(devices_from_config(hass, config))
+    async_add_entities(devices_from_config(hass, from_config, config))

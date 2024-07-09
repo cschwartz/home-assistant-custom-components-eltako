@@ -5,14 +5,7 @@ import voluptuous as vol
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .trigger_listener import (
-    TRIGGERS_LISTENER_SCHEMA,
-    TriggerListenerData,
-    from_trigger_config,
-    TriggerListener,
-)
 
-from .const import CONF_SWITCH_LISTENERS
 from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.const import CONF_DEVICES, CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -21,8 +14,17 @@ from homeassistant.helpers.config_validation import PLATFORM_SCHEMA
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
+from .config import devices_from_config
+from .const import CONF_SWITCH_LISTENERS
+from .trigger_listener import (
+    TRIGGERS_LISTENER_SCHEMA,
+    TriggerListenerData,
+    from_trigger_config,
+    TriggerListener,
+)
 
-class EltakoBinarySensor(TriggerListener, BinarySensorEntity):
+
+class EltakoBinarySensor(BinarySensorEntity):
     def __init__(
         self,
         device_id: str,
@@ -34,6 +36,11 @@ class EltakoBinarySensor(TriggerListener, BinarySensorEntity):
         self._attr_name = name
 
         self._trigger_listener_data = trigger_listener_data
+
+        self._trigger_listener = TriggerListener(self, trigger_listener_data)
+
+    async def async_added_to_hass(self) -> None:
+        await self._trigger_listener.async_added_to_hass(self.hass, self.on_trigger_on, self.on_trigger_off)
 
     def on_trigger_on(self) -> None:
         self._attr_is_on = True
@@ -47,24 +54,13 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
         vol.Optional(CONF_DEVICES, default={}): vol.Schema(
             {
                 cv.string: {
-                    vol.Optional(CONF_NAME): cv.string,
+                    vol.Required(CONF_NAME): cv.string,
                     vol.Required(CONF_SWITCH_LISTENERS): TRIGGERS_LISTENER_SCHEMA,
                 }
             }
         ),
     }
 )
-
-
-def devices_from_config(
-    hass: HomeAssistant, domain_config: ConfigType
-) -> list[EltakoBinarySensor]:
-    entity_registry = er.async_get(hass)
-
-    return [
-        from_config(entity_registry, device_id, device_config)
-        for device_id, device_config in domain_config[CONF_DEVICES].items()
-    ]
 
 
 def from_config(
@@ -85,4 +81,4 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
-    async_add_entities(devices_from_config(hass, config))
+    async_add_entities(devices_from_config(hass, from_config, config))
