@@ -6,7 +6,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import config_validation as cv
 
-from homeassistant.core import HomeAssistant, State, callback, Event, EventStateChangedData
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, State, callback, Event, EventStateChangedData
 from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.entity_registry import EntityRegistry, RegistryEntry
 
@@ -33,25 +33,20 @@ class TriggerListenerData:
     off_entries: list[RegistryEntry]
 
 
-def from_trigger_config(entity_registry: EntityRegistry, trigger_config: ConfigType) -> TriggerListenerData:
-    return TriggerListenerData(
-        on_entries=from_entity_ids(
-            entity_registry,
-            trigger_config[CONF_TRIGGER_ON_ID]),
-        off_entries=from_entity_ids(
-            entity_registry,
-            trigger_config[CONF_TRIGGER_OFF_ID])
-    )
-
-
 class TriggerListener:
     def __init__(self, entity: Entity, data: TriggerListenerData) -> None:
         self._hass: Optional[HomeAssistant] = None
         self._entity = entity
         self._data = data
 
-    async def async_added_to_hass(self, hass: HomeAssistant) -> None:
+        self._on_trigger_on: Optional[CALLBACK_TYPE] = None
+        self._on_trigger_off: Optional[CALLBACK_TYPE] = None
+
+    async def async_added_to_hass(self, hass: HomeAssistant, on_trigger_on: CALLBACK_TYPE, on_trigger_off: CALLBACK_TYPE) -> None:
         self._hass = hass
+
+        self._on_trigger_on = on_trigger_on
+        self._on_trigger_off = on_trigger_off
 
         entity_ids = self._to_entity_ids([
             *self._data.on_entries,
@@ -75,12 +70,11 @@ class TriggerListener:
         assert self._hass is not None
 
         if (new_state_data := event.data["new_state"]):
+            if self._state_changed_for_entities(new_state_data, self._data.on_entries) and self._on_trigger_on is not None:
+                self._on_trigger_on()
 
-            if self._state_changed_for_entities(new_state_data, self._data.on_entries):
-                self._entity.on_trigger_on()
-
-            if self._state_changed_for_entities(new_state_data, self._data.off_entries):
-                self._entity.on_trigger_off()
+            if self._state_changed_for_entities(new_state_data, self._data.off_entries) and self._on_trigger_off is not None:
+                self._on_trigger_off()
 
             self._entity.async_write_ha_state()
 
@@ -95,3 +89,14 @@ class TriggerListener:
 
     def _to_entity_ids(self, entries: list[RegistryEntry]) -> list[str]:
         return [entry.entity_id for entry in entries]
+
+
+def from_trigger_config(entity_registry: EntityRegistry, trigger_config: ConfigType) -> TriggerListenerData:
+    return TriggerListenerData(
+        on_entries=from_entity_ids(
+            entity_registry,
+            trigger_config[CONF_TRIGGER_ON_ID]),
+        off_entries=from_entity_ids(
+            entity_registry,
+            trigger_config[CONF_TRIGGER_OFF_ID])
+    )

@@ -1,5 +1,6 @@
 """Cover for Eltako devices."""
 
+from collections.abc import Callable
 import logging
 
 from datetime import datetime, timedelta
@@ -11,26 +12,6 @@ from xknx.devices import TravelStatus
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
-from .trigger_listener import (
-    TRIGGERS_LISTENER_SCHEMA,
-    TriggerListenerData,
-    from_trigger_config,
-    TriggerListener,
-)
-from .switch_user import (
-    SWITCH_SCHEMA,
-    SwitchUserData,
-    SwitchUser,
-    from_switch_config,
-)
-from .const import (
-    CONF_VIRTUAL_SWITCH,
-    CONF_TILTING_TIME_DOWN,
-    CONF_TILTING_TIME_UP,
-    CONF_TRAVELLING_TIME_DOWN,
-    CONF_TRAVELLING_TIME_UP,
-    CONF_SWITCH_LISTENERS,
-)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import (
@@ -60,6 +41,28 @@ from homeassistant.const import (
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.restore_state import RestoreEntity
+
+from .config import devices_from_config
+from .const import (
+    CONF_VIRTUAL_SWITCH,
+    CONF_TILTING_TIME_DOWN,
+    CONF_TILTING_TIME_UP,
+    CONF_TRAVELLING_TIME_DOWN,
+    CONF_TRAVELLING_TIME_UP,
+    CONF_SWITCH_LISTENERS,
+)
+from .trigger_listener import (
+    TRIGGERS_LISTENER_SCHEMA,
+    TriggerListenerData,
+    from_trigger_config,
+    TriggerListener,
+)
+from .switch_user import (
+    SWITCH_SCHEMA,
+    SwitchUserData,
+    SwitchUser,
+    from_switch_config,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -102,35 +105,39 @@ class EltakoCoverTimeBased(
         name: str,
         switch_user_data: SwitchUserData,
         trigger_listener_data: TriggerListenerData,
-        travel_time_down: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
-        travel_time_up: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
+        travel_time_down: timedelta = timedelta(
+            seconds=DEFAULT_TRAVEL_TIME),
+        travel_time_up: timedelta = timedelta(
+            seconds=DEFAULT_TRAVEL_TIME),
         tilt_time_down: Optional[timedelta] = None,
         tilt_time_up: Optional[timedelta] = None,
     ) -> None:
         """Initialize the cover."""
-        from xknx.devices import TravelCalculator
-        self._tilting_time_down = tilt_time_down.total_seconds() if tilt_time_down else None
-        self._tilting_time_up = tilt_time_up.total_seconds() if tilt_time_up else None
-        self._travel_time_down = travel_time_down.total_seconds()
-        self._travel_time_up = travel_time_up.total_seconds()
+        from xknx import __version__
+        self._tilting_time_down = float(
+            tilt_time_down.total_seconds()
+        ) if tilt_time_down else None
+        self._tilting_time_up = float(
+            tilt_time_up.total_seconds()
+        ) if tilt_time_up else None
+        self._travel_time_down = float(travel_time_down.total_seconds())
+        self._travel_time_up = float(travel_time_up.total_seconds())
 
         self._attr_unique_id = device_id
         self._attr_name = name
         self._attr_device_class = None
 
-        self._unsubscribe_auto_updater = None
+        self._unsubscribe_auto_updater: Optional[Callable[[], None]] = None
 
         self.travel_calc = TravelCalculator(
             self._travel_time_down,
             self._travel_time_up,
         )
-        if self._has_tilt_support():
+        if self._tilting_time_down is not None and self._tilting_time_up is not None:
             self.tilt_calc = TravelCalculator(
                 self._tilting_time_down,
                 self._tilting_time_up,
             )
-
-        self._trigger_listener_data = trigger_listener_data
 
         self._switch_user = SwitchUser(switch_user_data)
         self._trigger_listener = TriggerListener(self, trigger_listener_data)
@@ -162,21 +169,21 @@ class EltakoCoverTimeBased(
         if (
             old_state is not None
             and self.travel_calc is not None
-            and old_state.attributes.get(ATTR_CURRENT_POSITION) is not None
+            and (old_position := old_state.attributes.get(ATTR_CURRENT_POSITION)) is not None
         ):
-            self.travel_calc.set_position(
-                int(old_state.attributes.get(ATTR_CURRENT_POSITION))
-            )
+            self.travel_calc.set_position(100 - int(old_position))
 
             if (
                 self._has_tilt_support()
-                and old_state.attributes.get(ATTR_CURRENT_TILT_POSITION) is not None
+                and (old_tilt_position := old_state.attributes.get(ATTR_CURRENT_TILT_POSITION)) is not None
             ):
-                self.tilt_calc.set_position(
-                    int(old_state.attributes.get(ATTR_CURRENT_TILT_POSITION))
-                )
+                self.tilt_calc.set_position(100 - int(old_tilt_position))
 
-        await self._trigger_listener.async_added_to_hass(self.hass)
+        await self._trigger_listener.async_added_to_hass(
+            self.hass,
+            self.on_trigger_on,
+            self.on_trigger_off
+        )
 
     def _handle_stop(self) -> None:
         """Handle stop"""
@@ -199,7 +206,7 @@ class EltakoCoverTimeBased(
         if self._travel_time_up is not None:
             attr[CONF_TRAVELLING_TIME_UP] = int(self._travel_time_up)
         if self._tilting_time_down is not None:
-            attr[CONF_TILTING_TIME_DOWN] = int(self._tilting_time_up)
+            attr[CONF_TILTING_TIME_DOWN] = int(self._tilting_time_down)
         if self._tilting_time_up is not None:
             attr[CONF_TILTING_TIME_UP] = int(self._tilting_time_up)
         return attr
@@ -207,14 +214,18 @@ class EltakoCoverTimeBased(
     @property
     def current_cover_position(self) -> Optional[int]:
         """Return the current position of the cover."""
-        return self.travel_calc.current_position()
+        if (current_position := self.travel_calc.current_position()) is not None:
+            return 100 - current_position
+        else:
+            return None
 
     @property
     def current_cover_tilt_position(self) -> Optional[int]:
         """Return the current tilt of the cover."""
-        if self._has_tilt_support():
-            return self.tilt_calc.current_position()
-        return None
+        if self._has_tilt_support() and (current_position := self.tilt_calc.current_position()):
+            return 100 - current_position
+        else:
+            return None
 
     @property
     def is_opening(self) -> bool:
@@ -289,7 +300,7 @@ class EltakoCoverTimeBased(
     async def async_close_cover(self, **kwargs: Any) -> None:
         """Turn the device close."""
         _LOGGER.debug("async_close_cover")
-        if self.travel_calc.current_position() > 0:
+        if (current_position := self.travel_calc.current_position()) is not None and current_position < 100:
             self.travel_calc.start_travel_down()
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_CLOSE_COVER)
@@ -298,7 +309,7 @@ class EltakoCoverTimeBased(
     async def async_open_cover(self, **kwargs: Any) -> None:
         """Turn the device open."""
         _LOGGER.debug("async_open_cover")
-        if self.travel_calc.current_position() < 100:
+        if (current_position := self.travel_calc.current_position()) is not None and current_position > 0:
             self.travel_calc.start_travel_up()
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_OPEN_COVER)
@@ -307,7 +318,7 @@ class EltakoCoverTimeBased(
     async def async_close_cover_tilt(self, **kwargs: Any) -> None:
         """Turn the device close."""
         _LOGGER.debug("async_close_cover_tilt")
-        if self.tilt_calc.current_position() > 0:
+        if (current_tilt := self.tilt_calc.current_position()) is not None and current_tilt < 100:
             self.tilt_calc.start_travel_down()
             self.start_auto_updater()
             await self._async_handle_command(SERVICE_CLOSE_COVER)
@@ -315,7 +326,7 @@ class EltakoCoverTimeBased(
     async def async_open_cover_tilt(self, **kwargs: Any) -> None:
         """Turn the device open."""
         _LOGGER.debug("async_open_cover_tilt")
-        if self.tilt_calc.current_position() < 100:
+        if (current_tilt := self.tilt_calc.current_position()) is not None and current_tilt > 0:
             self.tilt_calc.start_travel_up()
             self.start_auto_updater()
             await self._async_handle_command(SERVICE_OPEN_COVER)
@@ -326,50 +337,50 @@ class EltakoCoverTimeBased(
         await self._async_handle_command(SERVICE_STOP_COVER)
         self._handle_stop()
 
-    async def set_position(self, position: int) -> None:
+    async def set_position(self, target_position: int) -> None:
         """Move cover to a designated position."""
         _LOGGER.debug("set_position")
-        current_position = self.travel_calc.current_position()
-        _LOGGER.debug(
-            "set_position :: current_position: %d, new_position: %d",
-            current_position,
-            position,
-        )
-        command: Optional[CoverCommand] = None
-        if position < current_position:
-            command = SERVICE_CLOSE_COVER
-        elif position > current_position:
-            command = SERVICE_OPEN_COVER
+        if (calc_position := self.travel_calc.current_position()) is not None:
+            current_position = 100 - calc_position
+            _LOGGER.debug(
+                "set_position :: current_position: %d, new_position: %d",
+                current_position,
+                target_position,
+            )
+            command: Optional[CoverCommand] = None
+            if target_position < current_position:
+                command = SERVICE_CLOSE_COVER
+            elif target_position > current_position:
+                command = SERVICE_OPEN_COVER
 
-        if command is not None:
-            self.start_auto_updater()
-            self.travel_calc.start_travel(position)
-            _LOGGER.debug("set_position :: command %s", command)
-            self._update_tilt_before_travel(command)
-            await self._async_handle_command(command)
-        return
+            if command is not None:
+                self.start_auto_updater()
+                self.travel_calc.start_travel(100 - target_position)
+                _LOGGER.debug("set_position :: command %s", command)
+                self._update_tilt_before_travel(command)
+                await self._async_handle_command(command)
 
-    async def set_tilt_position(self, position: int) -> None:
+    async def set_tilt_position(self, target_position: int) -> None:
         """Move cover tilt to a designated position."""
         _LOGGER.debug("set_tilt_position")
-        current_position = self.tilt_calc.current_position()
-        _LOGGER.debug(
-            "set_tilt_position :: current_position: %d, new_position: %d",
-            current_position,
-            position,
-        )
-        command: Optional[CoverCommand] = None
-        if position < current_position:
-            command = SERVICE_CLOSE_COVER
-        elif position > current_position:
-            command = SERVICE_OPEN_COVER
+        if (calc_position := self.tilt_calc.current_position()) is not None:
+            current_position = 100 - calc_position
+            _LOGGER.debug(
+                "set_tilt_position :: current_position: %d, new_position: %d",
+                current_position,
+                target_position,
+            )
+            command: Optional[CoverCommand] = None
+            if target_position < current_position:
+                command = SERVICE_CLOSE_COVER
+            elif target_position > current_position:
+                command = SERVICE_OPEN_COVER
 
-        if command is not None:
-            self.start_auto_updater()
-            self.tilt_calc.start_travel(position)
-            _LOGGER.debug("set_tilt_position :: command %s", command)
-            await self._async_handle_command(command)
-        return
+            if command is not None:
+                self.start_auto_updater()
+                self.tilt_calc.start_travel(100 - target_position)
+                _LOGGER.debug("set_tilt_position :: command %s", command)
+                await self._async_handle_command(command)
 
     def start_auto_updater(self) -> None:
         """Start the autoupdater to update HASS while cover is moving."""
@@ -414,9 +425,9 @@ class EltakoCoverTimeBased(
         if self._has_tilt_support():
             _LOGGER.debug("_update_tilt_before_travel :: command %s", command)
             if command == SERVICE_OPEN_COVER:
-                self.tilt_calc.set_position(100)
-            elif command == SERVICE_CLOSE_COVER:
                 self.tilt_calc.set_position(0)
+            elif command == SERVICE_CLOSE_COVER:
+                self.tilt_calc.set_position(100)
 
     async def auto_stop_if_necessary(self) -> None:
         """Do auto stop if necessary."""
@@ -453,32 +464,11 @@ def from_config(
         trigger_listener_data=from_trigger_config(
             entity_registry, config[CONF_SWITCH_LISTENERS]
         ),
+        travel_time_up=config.get(CONF_TRAVELLING_TIME_UP),
+        travel_time_down=config.get(CONF_TRAVELLING_TIME_DOWN),
+        tilt_time_up=config.get(CONF_TILTING_TIME_UP),
+        tilt_time_down=config.get(CONF_TILTING_TIME_DOWN),
     )
-
-
-def devices_from_config(
-    hass: HomeAssistant, domain_config: ConfigType
-) -> list[EltakoCoverTimeBased]:
-    entity_registry = er.async_get(hass)
-
-    devices = []
-    for device_id, config in domain_config[CONF_DEVICES].items():
-        device = EltakoCoverTimeBased(
-            device_id,
-            name=config[CONF_NAME],
-            switch_user_data=from_switch_config(
-                entity_registry, config[CONF_VIRTUAL_SWITCH]
-            ),
-            trigger_listener_data=from_trigger_config(
-                entity_registry, config[CONF_SWITCH_LISTENERS]
-            ),
-            travel_time_up=config.get(CONF_TRAVELLING_TIME_UP),
-            travel_time_down=config.get(CONF_TRAVELLING_TIME_DOWN),
-            tilt_time_up=config.get(CONF_TILTING_TIME_UP),
-            tilt_time_down=config.get(CONF_TILTING_TIME_DOWN),
-        )
-        devices.append(device)
-    return devices
 
 
 async def async_setup_platform(
@@ -487,4 +477,4 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
-    async_add_entities(devices_from_config(hass, config))
+    async_add_entities(devices_from_config(hass, from_config, config))
