@@ -10,6 +10,7 @@ from homeassistant.helpers.typing import ConfigType
 
 from .const import CONF_SWITCH_ID, CONF_SWITCH_OPTION_DOWN, CONF_SWITCH_OPTION_UP
 from .entity_registry import from_entity_id
+from .schema import enum_schema
 
 
 class ButtonOption(StrEnum):
@@ -17,10 +18,6 @@ class ButtonOption(StrEnum):
     AI = "AI"
     BO = "BO"
     BI = "BI"
-
-
-def enum_schema(e: type[Enum]) -> vol.All:
-    return vol.All(vol.In(list(e)), lambda v: e[v])
 
 
 SWITCH_SCHEMA = vol.Schema(
