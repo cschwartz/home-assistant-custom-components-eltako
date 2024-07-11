@@ -1,6 +1,4 @@
 CONF_SWITCH_LISTENERS = "switch_listeners"
-CONF_TRIGGER_ON_ID = "on_ids"
-CONF_TRIGGER_OFF_ID = "off_ids"
 CONF_TRIGGER_SIDE = "side"
 
 CONF_VIRTUAL_SWITCH = "virtual_switch"

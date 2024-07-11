@@ -139,7 +139,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
         self._switch_user = SwitchUser(switch_user_data)
         self._trigger_listener = TriggerListener(self, trigger_listener_data)
 
-    def on_trigger_on(self) -> None:
+    def on_trigger_off(self) -> None:
         if self.state == STATE_OPENING:
             self._handle_stop()
         elif self.state in (STATE_CLOSING, STATE_CLOSED) or (
@@ -151,7 +151,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_OPEN_COVER)
 
-    def on_trigger_off(self) -> None:
+    def on_trigger_on(self) -> None:
         if self.state == STATE_CLOSING:
             self._handle_stop()
         elif self.state in (STATE_OPENING, STATE_OPEN):
