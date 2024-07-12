@@ -51,17 +51,17 @@ from .const import (
     CONF_TRAVELLING_TIME_UP,
     CONF_SWITCH_LISTENERS,
 )
-from .trigger_listener import (
-    TRIGGERS_LISTENER_SCHEMA,
-    TriggerListenerData,
-    from_trigger_config,
-    TriggerListener,
+from .switch_listener import (
+    SWITCH_LISTENER_SCHEMA,
+    SwitchListenerData,
+    from_switch_listener_config,
+    SwitchListener,
 )
 from .switch_user import (
     SWITCH_SCHEMA,
     SwitchUserData,
     SwitchUser,
-    from_switch_config,
+    from_switch_user_config,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
             {
                 cv.string: {
                     vol.Optional(CONF_NAME): cv.string,
-                    vol.Required(CONF_SWITCH_LISTENERS): TRIGGERS_LISTENER_SCHEMA,
+                    vol.Required(CONF_SWITCH_LISTENERS): SWITCH_LISTENER_SCHEMA,
                     vol.Required(CONF_VIRTUAL_SWITCH): SWITCH_SCHEMA,
                     vol.Optional(
                         CONF_TRAVELLING_TIME_UP, default=DEFAULT_TRAVEL_TIME
@@ -102,7 +102,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
         device_id: str,
         name: str,
         switch_user_data: SwitchUserData,
-        trigger_listener_data: TriggerListenerData,
+        switch_listener_data: SwitchListenerData,
         travel_time_down: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
         travel_time_up: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
         tilt_time_down: Optional[timedelta] = None,
@@ -137,9 +137,9 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             )
 
         self._switch_user = SwitchUser(switch_user_data)
-        self._trigger_listener = TriggerListener(self, trigger_listener_data)
+        self._switch_listener = SwitchListener(self, switch_listener_data)
 
-    def on_trigger_off(self) -> None:
+    def on_switch_off(self) -> None:
         if self.state == STATE_OPENING:
             self._handle_stop()
         elif self.state in (STATE_CLOSING, STATE_CLOSED) or (
@@ -151,7 +151,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             self.start_auto_updater()
             self._update_tilt_before_travel(SERVICE_OPEN_COVER)
 
-    def on_trigger_on(self) -> None:
+    def on_switch_on(self) -> None:
         if self.state == STATE_CLOSING:
             self._handle_stop()
         elif self.state in (STATE_OPENING, STATE_OPEN):
@@ -182,8 +182,8 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             ):
                 self.tilt_calc.set_position(100 - int(old_tilt_position))
 
-        await self._trigger_listener.async_added_to_hass(
-            self.hass, self.on_trigger_on, self.on_trigger_off
+        await self._switch_listener.async_added_to_hass(
+            self.hass, self.on_switch_on, self.on_switch_off
         )
 
     def _handle_stop(self) -> None:
@@ -469,10 +469,10 @@ def from_config(
     return EltakoCoverTimeBased(
         id,
         name=config[CONF_NAME],
-        switch_user_data=from_switch_config(
+        switch_user_data=from_switch_user_config(
             entity_registry, config[CONF_VIRTUAL_SWITCH]
         ),
-        trigger_listener_data=from_trigger_config(
+        switch_listener_data=from_switch_listener_config(
             entity_registry, config[CONF_SWITCH_LISTENERS]
         ),
         travel_time_up=config.get(CONF_TRAVELLING_TIME_UP),

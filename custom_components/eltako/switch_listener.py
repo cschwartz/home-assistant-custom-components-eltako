@@ -36,47 +36,43 @@ class ActionType(StrEnum):
     off = "off"
 
 
-TRIGGERS_LISTENER_SCHEMA = vol.Schema(
+SWITCH_LISTENER_SCHEMA = vol.Schema(
     {
         cv.string: {
             vol.Optional(
-                CONF_SWITCH_POSITION,
-                default=SwitchPosition.left
+                CONF_SWITCH_POSITION, default=SwitchPosition.left
             ): enum_schema(SwitchPosition),
-            vol.Optional(
-                CONF_SWITCH_IS_INVERTED,
-                default=False
-            ): cv.boolean,
+            vol.Optional(CONF_SWITCH_IS_INVERTED, default=False): cv.boolean,
         }
     }
 )
 
 
 @dataclass(frozen=True, kw_only=True)
-class TriggerListenerData:
+class SwitchListenerData:
     on_entries: list[RegistryEntry]
     off_entries: list[RegistryEntry]
 
 
-class TriggerListener:
-    def __init__(self, entity: Entity, data: TriggerListenerData) -> None:
+class SwitchListener:
+    def __init__(self, entity: Entity, data: SwitchListenerData) -> None:
         self._hass: Optional[HomeAssistant] = None
         self._entity = entity
         self._data = data
 
-        self._on_trigger_on: Optional[CALLBACK_TYPE] = None
-        self._on_trigger_off: Optional[CALLBACK_TYPE] = None
+        self._on_switch_on: Optional[CALLBACK_TYPE] = None
+        self._on_switch_off: Optional[CALLBACK_TYPE] = None
 
     async def async_added_to_hass(
         self,
         hass: HomeAssistant,
-        on_trigger_on: CALLBACK_TYPE,
-        on_trigger_off: CALLBACK_TYPE,
+        on_switch_on: CALLBACK_TYPE,
+        on_switch_off: CALLBACK_TYPE,
     ) -> None:
         self._hass = hass
 
-        self._on_trigger_on = on_trigger_on
-        self._on_trigger_off = on_trigger_off
+        self._on_switch_on = on_switch_on
+        self._on_switch_off = on_switch_off
 
         entity_ids = self._to_entity_ids(
             [*self._data.on_entries, *self._data.off_entries]
@@ -84,12 +80,12 @@ class TriggerListener:
 
         self._entity.async_on_remove(
             async_track_state_change_event(
-                self._hass, entity_ids, self.trigger_state_change_listener
+                self._hass, entity_ids, self.switch_state_change_listener
             )
         )
 
     @callback
-    async def trigger_state_change_listener(
+    async def switch_state_change_listener(
         self,
         event: Event[EventStateChangedData],
     ) -> None:
@@ -98,36 +94,31 @@ class TriggerListener:
 
         if new_state_data := event.data["new_state"]:
             if (
-                self._state_changed_for_entities(
-                    new_state_data, self._data.on_entries)
-                and self._on_trigger_on is not None
+                self._state_changed_for_entities(new_state_data, self._data.on_entries)
+                and self._on_switch_on is not None
             ):
-                self._on_trigger_on()
+                self._on_switch_on()
 
             if (
-                self._state_changed_for_entities(
-                    new_state_data, self._data.off_entries)
-                and self._on_trigger_off is not None
+                self._state_changed_for_entities(new_state_data, self._data.off_entries)
+                and self._on_switch_off is not None
             ):
-                self._on_trigger_off()
+                self._on_switch_off()
 
             self._entity.async_write_ha_state()
 
     def _state_changed_for_entities(
         self, new_state: State, listened_entites: list[RegistryEntry]
     ) -> bool:
-        triggering_entity_id = new_state.entity_id
-        triggered_state = new_state.state
-
         return (
-            triggering_entity_id in self._to_entity_ids(listened_entites)
-        ) and triggered_state == "on"
+            new_state.entity_id in self._to_entity_ids(listened_entites)
+        ) and new_state.state == "on"
 
     def _to_entity_ids(self, entries: list[RegistryEntry]) -> list[str]:
         return [entry.entity_id for entry in entries]
 
 
-def to_action_code(action: ActionType, is_inverted: bool) -> Literal['o', 'i']:
+def to_action_code(action: ActionType, is_inverted: bool) -> Literal["o", "i"]:
     if not is_inverted:
         if action == ActionType.off:
             return "i"
@@ -153,24 +144,22 @@ def to_entity_pair(device_id: str, device_config: ConfigType) -> tuple[str, str]
     position = device_config.get(CONF_SWITCH_POSITION)
     is_inverted = device_config.get(CONF_SWITCH_IS_INVERTED)
 
-    on_entity_id = to_entity_id(
-        device_id, ActionType.on, position, is_inverted)
-    off_entity_id = to_entity_id(
-        device_id, ActionType.off, position, is_inverted)
+    on_entity_id = to_entity_id(device_id, ActionType.on, position, is_inverted)
+    off_entity_id = to_entity_id(device_id, ActionType.off, position, is_inverted)
 
     return on_entity_id, off_entity_id
 
 
-def from_trigger_config(
-    entity_registry: EntityRegistry, trigger_config: ConfigType
-) -> TriggerListenerData:
+def from_switch_listener_config(
+    entity_registry: EntityRegistry, switch_listener_config: ConfigType
+) -> SwitchListenerData:
     entity_pairs = [
         to_entity_pair(device_id, device_config)
-        for device_id, device_config in trigger_config.items()
+        for device_id, device_config in switch_listener_config.items()
     ]
     on_sensor_ids = [pair[0] for pair in entity_pairs]
     off_sensor_ids = [pair[1] for pair in entity_pairs]
-    return TriggerListenerData(
+    return SwitchListenerData(
         on_entries=from_entity_ids(
             entity_registry,
             on_sensor_ids,

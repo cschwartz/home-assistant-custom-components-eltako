@@ -17,13 +17,13 @@ from .switch_user import (
     SWITCH_SCHEMA,
     SwitchUserData,
     SwitchUser,
-    from_switch_config,
+    from_switch_user_config,
 )
-from .trigger_listener import (
-    TRIGGERS_LISTENER_SCHEMA,
-    TriggerListenerData,
-    TriggerListener,
-    from_trigger_config,
+from .switch_listener import (
+    SWITCH_LISTENER_SCHEMA,
+    SwitchListenerData,
+    SwitchListener,
+    from_switch_listener_config,
 )
 
 
@@ -33,7 +33,7 @@ PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
             {
                 cv.string: {
                     vol.Optional(CONF_NAME): cv.string,
-                    vol.Required(CONF_SWITCH_LISTENERS): TRIGGERS_LISTENER_SCHEMA,
+                    vol.Required(CONF_SWITCH_LISTENERS): SWITCH_LISTENER_SCHEMA,
                     vol.Required(CONF_VIRTUAL_SWITCH): SWITCH_SCHEMA,
                 }
             }
@@ -48,29 +48,25 @@ class EltakoSwitch(SwitchEntity):
         id: str,
         name: str,
         switch_user_data: SwitchUserData,
-        trigger_listener_data: TriggerListenerData,
+        switch_listener_data: SwitchListenerData,
     ) -> None:
         self._attr_unique_id = id
         self._attr_name = name
 
-        self._trigger_listener_data = trigger_listener_data
-
         self._switch_user = SwitchUser(switch_user_data)
-        self._trigger_listener = TriggerListener(self, trigger_listener_data)
+        self._switch_listener = SwitchListener(self, switch_listener_data)
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
 
-        await self._trigger_listener.async_added_to_hass(
-            self.hass,
-            self.on_trigger_on,
-            self.on_trigger_off
+        await self._switch_listener.async_added_to_hass(
+            self.hass, self.on_switch_on, self.on_switch_off
         )
 
-    def on_trigger_on(self) -> None:
+    def on_switch_on(self) -> None:
         self._set_state(True)
 
-    def on_trigger_off(self) -> None:
+    def on_switch_off(self) -> None:
         self._set_state(False)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
@@ -92,10 +88,10 @@ def from_config(
     return EltakoSwitch(
         id,
         name=config.pop(CONF_NAME),
-        switch_user_data=from_switch_config(
+        switch_user_data=from_switch_user_config(
             entity_registry, config.pop(CONF_VIRTUAL_SWITCH)
         ),
-        trigger_listener_data=from_trigger_config(
+        switch_listener_data=from_switch_listener_config(
             entity_registry, config.pop(CONF_SWITCH_LISTENERS)
         ),
     )
