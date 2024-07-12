@@ -23,13 +23,11 @@ class ButtonOption(StrEnum):
 SWITCH_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_SWITCH_ID): cv.entity_domain(["select", "input_select"]),
+        vol.Required(CONF_SWITCH_OPTION_UP, default=ButtonOption.BO.name): enum_schema(
+            ButtonOption
+        ),
         vol.Required(
-            CONF_SWITCH_OPTION_UP,
-            default=ButtonOption.BO.name
-        ): enum_schema(ButtonOption),
-        vol.Required(
-            CONF_SWITCH_OPTION_DOWN,
-            default=ButtonOption.BI.name
+            CONF_SWITCH_OPTION_DOWN, default=ButtonOption.BI.name
         ): enum_schema(ButtonOption),
     }
 )
@@ -42,14 +40,13 @@ class SwitchUserData:
     on_action: ButtonOption
 
 
-def from_switch_config(entity_registry: EntityRegistry, switch_config: ConfigType) -> SwitchUserData:
+def from_switch_user_config(
+    entity_registry: EntityRegistry, switch_config: ConfigType
+) -> SwitchUserData:
     return SwitchUserData(
-        entry=from_entity_id(
-            entity_registry,
-            switch_config.pop(CONF_SWITCH_ID)
-        ),
+        entry=from_entity_id(entity_registry, switch_config.pop(CONF_SWITCH_ID)),
         off_action=switch_config.pop(CONF_SWITCH_OPTION_DOWN),
-        on_action=switch_config.pop(CONF_SWITCH_OPTION_UP)
+        on_action=switch_config.pop(CONF_SWITCH_OPTION_UP),
     )
 
 
