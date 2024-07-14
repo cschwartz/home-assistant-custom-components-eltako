@@ -1,6 +1,7 @@
 """Cover for Eltako devices."""
 
 from collections.abc import Callable
+from dataclasses import dataclass
 import logging
 
 from datetime import datetime, timedelta
@@ -45,10 +46,10 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .config import devices_from_config
 from .const import (
     CONF_VIRTUAL_SWITCH,
-    CONF_TILTING_TIME_DOWN,
-    CONF_TILTING_TIME_UP,
-    CONF_TRAVELLING_TIME_DOWN,
-    CONF_TRAVELLING_TIME_UP,
+    CONF_TIME_DOWN,
+    CONF_TIME_UP,
+    CONF_TILTING_TIME,
+    CONF_TRAVELING_TIME,
     CONF_SWITCH_LISTENERS,
 )
 from .switch_listener import (
@@ -70,6 +71,12 @@ _LOGGER = logging.getLogger(__name__)
 DEFAULT_TRAVEL_TIME = 30
 DEFAULT_TILTING_TIME = 5
 
+
+TIME_SCHEMA = vol.Schema({
+    vol.Optional(CONF_TIME_UP): cv.time_period_seconds,
+    vol.Optional(CONF_TIME_DOWN): cv.time_period_seconds,
+})
+
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
         vol.Optional(CONF_DEVICES, default={}): vol.Schema(
@@ -78,19 +85,20 @@ PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
                     vol.Optional(CONF_NAME): cv.string,
                     vol.Required(CONF_SWITCH_LISTENERS): SWITCH_LISTENER_SCHEMA,
                     vol.Required(CONF_VIRTUAL_SWITCH): SWITCH_SCHEMA,
-                    vol.Optional(
-                        CONF_TRAVELLING_TIME_UP, default=DEFAULT_TRAVEL_TIME
-                    ): cv.time_period_seconds,
-                    vol.Optional(
-                        CONF_TRAVELLING_TIME_DOWN, default=DEFAULT_TRAVEL_TIME
-                    ): cv.time_period_seconds,
-                    vol.Optional(CONF_TILTING_TIME_UP): cv.time_period_seconds,
-                    vol.Optional(CONF_TILTING_TIME_DOWN): cv.time_period_seconds,
+                    vol.Required(CONF_TRAVELING_TIME): TIME_SCHEMA,
+                    vol.Optional(CONF_TILTING_TIME): TIME_SCHEMA,
                 }
             }
         ),
     }
 )
+
+
+@dataclass(frozen=True, kw_only=True)
+class TimeData:
+    up: timedelta
+    down: timedelta
+
 
 CoverCommand = Literal["open_cover"] | Literal["close_cover"] | Literal["stop_cover"]
 
@@ -103,41 +111,29 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
         name: str,
         switch_user_data: SwitchUserData,
         switch_listener_data: SwitchListenerData,
-        travel_time_down: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
-        travel_time_up: timedelta = timedelta(seconds=DEFAULT_TRAVEL_TIME),
-        tilt_time_down: Optional[timedelta] = None,
-        tilt_time_up: Optional[timedelta] = None,
+        traveling_time_data: TimeData,
+        tilting_time_data: Optional[TimeData] = None,
     ) -> None:
         """Initialize the cover."""
         from xknx.devices import TravelCalculator
-
-        self._tilting_time_down = (
-            float(tilt_time_down.total_seconds()) if tilt_time_down else None
-        )
-        self._tilting_time_up = (
-            float(tilt_time_up.total_seconds()) if tilt_time_up else None
-        )
-        self._travel_time_down = float(travel_time_down.total_seconds())
-        self._travel_time_up = float(travel_time_up.total_seconds())
-
         self._attr_unique_id = device_id
         self._attr_name = name
         self._attr_device_class = None
 
         self._unsubscribe_auto_updater: Optional[Callable[[], None]] = None
 
-        self.travel_calc = TravelCalculator(
-            self._travel_time_down,
-            self._travel_time_up,
-        )
-        if self._tilting_time_down is not None and self._tilting_time_up is not None:
-            self.tilt_calc = TravelCalculator(
-                self._tilting_time_down,
-                self._tilting_time_up,
-            )
-
         self._switch_user = SwitchUser(switch_user_data)
         self._switch_listener = SwitchListener(self, switch_listener_data)
+
+        self.travel_calc = TravelCalculator(
+            travel_time_down=traveling_time_data.down.total_seconds(),
+            travel_time_up=traveling_time_data.up.total_seconds(),
+        )
+
+        self.tilt_calc = TravelCalculator(
+            travel_time_down=tilting_time_data.down.total_seconds(),
+            travel_time_up=tilting_time_data.up.total_seconds(),
+        ) if tilting_time_data is not None else None
 
     def on_switch_off(self) -> None:
         if self.state == STATE_OPENING:
@@ -197,20 +193,6 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             _LOGGER.debug("_handle_stop :: button stops tilt movement")
             self.tilt_calc.stop()
             self.stop_auto_updater()
-
-    @property
-    def extra_state_attributes(self) -> dict:
-        """Return the device state attributes."""
-        attr = {}
-        if self._travel_time_down is not None:
-            attr[CONF_TRAVELLING_TIME_DOWN] = int(self._travel_time_down)
-        if self._travel_time_up is not None:
-            attr[CONF_TRAVELLING_TIME_UP] = int(self._travel_time_up)
-        if self._tilting_time_down is not None:
-            attr[CONF_TILTING_TIME_DOWN] = int(self._tilting_time_down)
-        if self._tilting_time_up is not None:
-            attr[CONF_TILTING_TIME_UP] = int(self._tilting_time_up)
-        return attr
 
     @property
     def current_cover_position(self) -> Optional[int]:
@@ -428,8 +410,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
 
     def _has_tilt_support(self) -> bool:
         """Return if cover has tilt support."""
-
-        return self._tilting_time_down is not None and self._tilting_time_up is not None
+        return self.tilt_calc is not None
 
     def _update_tilt_before_travel(self, command: CoverCommand) -> None:
         """Updating tilt before travel."""
@@ -463,6 +444,17 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
         self.async_write_ha_state()
 
 
+def from_time_config_or_none(config: Optional[ConfigType]) -> Optional[TimeData]:
+    if config is not None:
+        return from_time_config(config)
+    else:
+        return None
+
+
+def from_time_config(config: ConfigType) -> TimeData:
+    return TimeData(up=config[CONF_TIME_UP], down=config[CONF_TIME_DOWN])
+
+
 def from_config(
     entity_registry: er.EntityRegistry, id: str, config: ConfigType
 ) -> EltakoCoverTimeBased:
@@ -475,10 +467,10 @@ def from_config(
         switch_listener_data=from_switch_listener_config(
             entity_registry, config[CONF_SWITCH_LISTENERS]
         ),
-        travel_time_up=config.get(CONF_TRAVELLING_TIME_UP),
-        travel_time_down=config.get(CONF_TRAVELLING_TIME_DOWN),
-        tilt_time_up=config.get(CONF_TILTING_TIME_UP),
-        tilt_time_down=config.get(CONF_TILTING_TIME_DOWN),
+        traveling_time_data=from_time_config(config[CONF_TRAVELING_TIME]),
+        tilting_time_data=from_time_config_or_none(
+            config.get(CONF_TILTING_TIME)
+        ),
     )
 
 
