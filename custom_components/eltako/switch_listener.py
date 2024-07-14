@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Literal, Optional, assert_never
+from typing import Any, Literal, Optional, assert_never
 import voluptuous as vol
 
 from homeassistant.helpers.entity import Entity
@@ -94,13 +94,15 @@ class SwitchListener:
 
         if new_state_data := event.data["new_state"]:
             if (
-                self._state_changed_for_entities(new_state_data, self._data.on_entries)
+                self._state_changed_for_entities(
+                    new_state_data, self._data.on_entries)
                 and self._on_switch_on is not None
             ):
                 self._on_switch_on()
 
             if (
-                self._state_changed_for_entities(new_state_data, self._data.off_entries)
+                self._state_changed_for_entities(
+                    new_state_data, self._data.off_entries)
                 and self._on_switch_off is not None
             ):
                 self._on_switch_off()
@@ -140,12 +142,26 @@ def to_entity_id(
     return f"binary_sensor.{device_id}_{position_code}{action_code}_pressed"
 
 
-def to_entity_pair(device_id: str, device_config: ConfigType) -> tuple[str, str]:
-    position = device_config.get(CONF_SWITCH_POSITION)
-    is_inverted = device_config.get(CONF_SWITCH_IS_INVERTED)
+def to_switch_position(switch_position: Any) -> SwitchPosition:
+    assert isinstance(switch_position, SwitchPosition)
+    return switch_position
 
-    on_entity_id = to_entity_id(device_id, ActionType.on, position, is_inverted)
-    off_entity_id = to_entity_id(device_id, ActionType.off, position, is_inverted)
+
+def to_bool(value: Any) -> bool:
+    assert isinstance(value, bool)
+    return value
+
+
+def to_entity_pair(device_id: str, device_config: ConfigType) -> tuple[str, str]:
+    position = to_switch_position(device_config.get(CONF_SWITCH_POSITION))
+    is_inverted = to_bool(device_config.get(CONF_SWITCH_IS_INVERTED))
+
+    on_entity_id = to_entity_id(
+        device_id,
+        ActionType.on, position, is_inverted)
+    off_entity_id = to_entity_id(
+        device_id,
+        ActionType.off, position, is_inverted)
 
     return on_entity_id, off_entity_id
 
