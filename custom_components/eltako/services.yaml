@@ -1,3 +1,4 @@
 ---
 reload:
   name: Reload YAML configuration
+  description: Reloads configuration.yaml for cover, binary_sensor and switch entities. 
