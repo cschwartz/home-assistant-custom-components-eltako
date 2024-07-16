@@ -4,6 +4,7 @@ import voluptuous as vol
 
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
+from homeassistant.helpers.reload import async_setup_reload_service
 
 
 from homeassistant.components.binary_sensor import BinarySensorEntity
@@ -14,6 +15,7 @@ from homeassistant.helpers.config_validation import PLATFORM_SCHEMA
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
+from . import DOMAIN
 from .config import devices_from_config
 from .const import CONF_SWITCH_LISTENERS
 from .switch_listener import (
@@ -22,6 +24,8 @@ from .switch_listener import (
     from_switch_listener_config,
     SwitchListener,
 )
+
+PLATFORM = "binary_sensor"
 
 
 class EltakoBinarySensor(BinarySensorEntity):
@@ -81,4 +85,5 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
+    await async_setup_reload_service(hass, DOMAIN, [PLATFORM])
     async_add_entities(devices_from_config(hass, from_config, config))

@@ -42,7 +42,9 @@ from homeassistant.const import (
 
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.reload import async_setup_reload_service
 
+from . import DOMAIN
 from .config import devices_from_config
 from .const import (
     CONF_VIRTUAL_SWITCH,
@@ -67,15 +69,18 @@ from .switch_user import (
 
 _LOGGER = logging.getLogger(__name__)
 
+PLATFORM = "cover"
 
 DEFAULT_TRAVEL_TIME = 30
 DEFAULT_TILTING_TIME = 5
 
 
-TIME_SCHEMA = vol.Schema({
-    vol.Optional(CONF_TIME_UP): cv.time_period_seconds,
-    vol.Optional(CONF_TIME_DOWN): cv.time_period_seconds,
-})
+TIME_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_TIME_UP): cv.time_period_seconds,
+        vol.Optional(CONF_TIME_DOWN): cv.time_period_seconds,
+    }
+)
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
     {
@@ -116,6 +121,7 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
     ) -> None:
         """Initialize the cover."""
         from xknx.devices import TravelCalculator
+
         self._attr_unique_id = device_id
         self._attr_name = name
         self._attr_device_class = None
@@ -130,10 +136,14 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
             travel_time_up=traveling_time_data.up.total_seconds(),
         )
 
-        self.tilt_calc = TravelCalculator(
-            travel_time_down=tilting_time_data.down.total_seconds(),
-            travel_time_up=tilting_time_data.up.total_seconds(),
-        ) if tilting_time_data is not None else None
+        self.tilt_calc = (
+            TravelCalculator(
+                travel_time_down=tilting_time_data.down.total_seconds(),
+                travel_time_up=tilting_time_data.up.total_seconds(),
+            )
+            if tilting_time_data is not None
+            else None
+        )
 
     def on_switch_off(self) -> None:
         if self.state == STATE_OPENING:
@@ -468,9 +478,7 @@ def from_config(
             entity_registry, config[CONF_SWITCH_LISTENERS]
         ),
         traveling_time_data=from_time_config(config[CONF_TRAVELING_TIME]),
-        tilting_time_data=from_time_config_or_none(
-            config.get(CONF_TILTING_TIME)
-        ),
+        tilting_time_data=from_time_config_or_none(config.get(CONF_TILTING_TIME)),
     )
 
 
@@ -480,4 +488,5 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
+    await async_setup_reload_service(hass, DOMAIN, [PLATFORM])
     async_add_entities(devices_from_config(hass, from_config, config))
