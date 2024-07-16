@@ -8,9 +8,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import NoEntitySpecifiedError
 from homeassistant.helpers import config_validation as cv, entity_registry as er
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.reload import async_setup_reload_service
 
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from . import DOMAIN
 from .config import devices_from_config
 from .const import CONF_VIRTUAL_SWITCH, CONF_SWITCH_LISTENERS
 from .switch_user import (
@@ -25,6 +27,9 @@ from .switch_listener import (
     SwitchListener,
     from_switch_listener_config,
 )
+
+
+PLATFORM = "switch"
 
 
 PLATFORM_SCHEMA = cv.PLATFORM_SCHEMA.extend(
@@ -103,4 +108,5 @@ async def async_setup_platform(
     async_add_entities: AddEntitiesCallback,
     discovery_info: Optional[DiscoveryInfoType] = None,
 ) -> None:
+    await async_setup_reload_service(hass, DOMAIN, [PLATFORM])
     async_add_entities(devices_from_config(hass, from_config, config))
