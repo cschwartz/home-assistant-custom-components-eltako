@@ -8,5 +8,5 @@
   "requirements": [
     "xknx==2.12.2"
   ],
-  "version": "1.1.1"
+  "version": "1.1.2"
 }

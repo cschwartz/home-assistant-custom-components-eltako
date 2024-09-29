@@ -446,9 +446,9 @@ class EltakoCoverTimeBased(CoverEntity, RestoreEntity):
         elif command == SERVICE_OPEN_COVER:
             await self._switch_user.push_off(self.hass)
         elif command == SERVICE_STOP_COVER:
-            if self.state == STATE_CLOSING:
+            if not self._cover_is_last_toggle_direction_open:
                 await self._switch_user.push_on(self.hass)
-            if self.state == STATE_OPENING:
+            if self._cover_is_last_toggle_direction_open:
                 await self._switch_user.push_off(self.hass)
 
         self.async_write_ha_state()
